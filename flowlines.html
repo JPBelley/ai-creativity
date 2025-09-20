@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Flow Field Art — single file</title>
+<style>
+  :root{
+    --bg:#0b0b0f;
+    --ui-bg: rgba(255,255,255,0.06);
+    --accent: #8be9fd;
+    --glass: rgba(255,255,255,0.04);
+    --font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color: #e6eef6;font-family:var(--font);-webkit-font-smoothing:antialiased}
+  canvas{display:block;width:100%;height:100vh;cursor:crosshair}
+  .ui {
+    position: fixed;
+    right: 12px;
+    top: 12px;
+    width: 320px;
+    max-width: calc(100% - 24px);
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 6px 30px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.02);
+    backdrop-filter: blur(6px) saturate(120%);
+    border: 1px solid rgba(255,255,255,0.03);
+    z-index: 30;
+  }
+  .ui h1{margin:0 0 8px 0;font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .row{display:flex;gap:8px;align-items:center;margin:8px 0}
+  label{font-size:12px;color:#bcd6ff;width:120px}
+  input[type="range"]{flex:1}
+  input[type="color"]{width:40px;height:32px;padding:0;border:0;background:transparent;cursor:pointer}
+  .btns{display:flex;gap:8px;flex-wrap:wrap}
+  button{
+    background:var(--ui-bg);
+    border:1px solid rgba(255,255,255,0.04);
+    color:inherit;padding:8px 10px;border-radius:8px;font-size:13px;cursor:pointer;
+  }
+  small{display:block;color:#94aee3;margin-top:4px;font-size:11px}
+  footer{position:fixed;left:16px;bottom:16px;color:#7f9adf;font-size:13px;opacity:0.9}
+  .hint{font-size:12px;color:#9fb7ff;margin-top:6px}
+  .palette{display:flex;gap:6px;align-items:center}
+  .swatch{width:28px;height:20px;border-radius:4px;border:1px solid rgba(255,255,255,0.06)}
+  .small{font-size:12px;color:#a9c7ff}
+  .range-value{width:58px;text-align:right;font-size:13px;color:#cfe1ff}
+  @media (max-width:480px){
+    .ui{left:12px;right:12px;top:auto;bottom:12px;width:auto}
+    footer{display:none}
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="ui" aria-hidden="false">
+  <h1>Flow Field Art</h1>
+  <div class="row">
+    <label>Particles</label>
+    <input id="particleCount" type="range" min="100" max="12000" step="100" value="2500">
+    <div class="range-value" id="particleCountVal">2500</div>
+  </div>
+
+  <div class="row">
+    <label>Noise scale</label>
+    <input id="noiseScale" type="range" min="0.0005" max="0.02" step="0.0005" value="0.0045">
+    <div class="range-value" id="noiseScaleVal">0.0045</div>
+  </div>
+
+  <div class="row">
+    <label>Flow strength</label>
+    <input id="flowStrength" type="range" min="0.2" max="6" step="0.1" value="2.2">
+    <div class="range-value" id="flowStrengthVal">2.2</div>
+  </div>
+
+  <div class="row">
+    <label>Stroke length</label>
+    <input id="stepSize" type="range" min="0.2" max="6" step="0.1" value="1.8">
+    <div class="range-value" id="stepSizeVal">1.8</div>
+  </div>
+
+  <div class="row">
+    <label>Fade (alpha)</label>
+    <input id="alpha" type="range" min="0.005" max="0.5" step="0.005" value="0.16">
+    <div class="range-value" id="alphaVal">0.16</div>
+  </div>
+
+  <div class="row">
+    <label>Palette</label>
+    <div class="palette" style="flex:1">
+      <div class="swatch" id="sw0" title="color 0"></div>
+      <div class="swatch" id="sw1" title="color 1"></div>
+      <div class="swatch" id="sw2" title="color 2"></div>
+      <div style="margin-left:auto">
+        <input type="color" id="col0" value="#ffd166" title="color 0">
+        <input type="color" id="col1" value="#06d6a0" title="color 1">
+        <input type="color" id="col2" value="#118ab2" title="color 2">
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <label>Animate</label>
+    <div style="flex:1;display:flex;gap:8px">
+      <button id="animBtn">Pause</button>
+      <button id="clearBtn">Clear</button>
+      <button id="reseedBtn">Reseed</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <label>Export</label>
+    <div style="flex:1;display:flex;gap:8px">
+      <button id="savePng">Save PNG</button>
+      <button id="saveJpg">Save JPG</button>
+    </div>
+  </div>
+
+  <div class="hint">Tip: drag mouse to influence particles. Click & drag to paint flow. Resize window to fill. Play with scale & strength for different textures.</div>
+</div>
+
+<footer>Made with Perlin noise • Single-file</footer>
+
+<script>
+/* -------------------------
+   Small Perlin noise 2D
+   (improved/permutation-based)
+   ------------------------- */
+class Perlin {
+  constructor(seed = Math.random()){
+    this.p = new Uint8Array(512);
+    this._init(seed);
+  }
+  _init(seed){
+    // simple seeded shuffle using mulberry32
+    const rand = mulberry32((seed * 0xFFFFFFFF) | 0);
+    const perm = new Uint8Array(256);
+    for(let i=0;i<256;i++) perm[i]=i;
+    for(let i=255;i>0;i--){
+      const j = Math.floor(rand() * (i+1));
+      const t = perm[i]; perm[i]=perm[j]; perm[j]=t;
+    }
+    for(let i=0;i<512;i++) this.p[i]=perm[i & 255];
+  }
+  // fade function
+  fade(t){ return t * t * t * (t * (t * 6 - 15) + 10); }
+  // linear interp
+  lerp(a,b,t){ return a + t*(b-a); }
+  // gradient: convert h to vector and dot with x,y
+  grad(hash, x, y){
+    const h = hash & 7; // 8 directions
+    const u = h<4 ? x : y;
+    const v = h<4 ? y : x;
+    return ((h&1)? -u : u) + ((h&2)? -2.0*v : 2.0*v);
+  }
+  noise2(x,y){
+    const X = Math.floor(x) & 255;
+    const Y = Math.floor(y) & 255;
+    const xf = x - Math.floor(x);
+    const yf = y - Math.floor(y);
+    const u = this.fade(xf);
+    const v = this.fade(yf);
+
+    const aa = this.p[this.p[X] + Y];
+    const ab = this.p[this.p[X] + Y + 1];
+    const ba = this.p[this.p[X + 1] + Y];
+    const bb = this.p[this.p[X + 1] + Y + 1];
+
+    const x1 = this.lerp(this.grad(aa, xf, yf), this.grad(ba, xf-1, yf), u);
+    const x2 = this.lerp(this.grad(ab, xf, yf-1), this.grad(bb, xf-1, yf-1), u);
+    return this.lerp(x1, x2, v) * 0.5 + 0.5; // normalize 0..1
+  }
+}
+
+/* deterministic PRNG for seed */
+function mulberry32(a) {
+  return function() {
+    let t = a += 0x6D2B79F5;
+    t = Math.imul(t ^ t>>>15, t | 1);
+    t ^= t + Math.imul(t ^ t>>>7, t | 61);
+    return ((t ^ t>>>14) >>> 0) / 4294967296;
+  };
+}
+
+/* -------------------------
+   Flow field + particles
+   ------------------------- */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: true });
+let W = canvas.width = innerWidth;
+let H = canvas.height = innerHeight;
+
+let params = {
+  particleCount: 2500,
+  noiseScale: 0.0045,
+  flowStrength: 2.2,
+  stepSize: 1.8,
+  alpha: 0.16,
+  palette: ['#ffd166','#06d6a0','#118ab2'],
+  seed: Math.random(),
+  animate: true
+};
+
+let noise = new Perlin(params.seed);
+let particles = [];
+let mouse = {x:null,y:null,down:false, vx:0, vy:0};
+let lastMouse = {x:0,y:0};
+let animId = null;
+
+function initParticles(n){
+  particles = new Array(n);
+  for(let i=0;i<n;i++){
+    particles[i] = {
+      x: Math.random()*W,
+      y: Math.random()*H,
+      age: Math.random()*200,
+      hue: Math.random(),
+      lineWidth: 0.4 + Math.random()*1.6,
+      colorIdx: Math.floor(Math.random()*params.palette.length)
+    };
+  }
+}
+
+/* adapt to display scale for crisp lines */
+function fitCanvas(){
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  W = canvas.width = Math.floor(innerWidth*dpr);
+  H = canvas.height = Math.floor(innerHeight*dpr);
+  canvas.style.width = innerWidth + 'px';
+  canvas.style.height = innerHeight + 'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0); // so drawing coordinates use CSS pixels
+  // redraw background with slight fade
+  ctx.fillStyle = 'rgba(8,8,12,1)';
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+}
+
+/* draw one frame */
+function step(){
+  const {noiseScale, flowStrength, stepSize, alpha} = params;
+  // small global fade to create lingering trails
+  ctx.fillStyle = `rgba(8,8,12,${Math.max(0, 0.02 * (1 - alpha*2))})`;
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+
+  for(let i=0;i<particles.length;i++){
+    const p = particles[i];
+    // get angle from noise (map noise value to angle)
+    const nx = p.x * noiseScale;
+    const ny = p.y * noiseScale;
+    // sample noise at a few offsets for richer motion
+    const a = noise.noise2(nx, ny) * Math.PI * 2 * flowStrength;
+    const ax = Math.cos(a);
+    const ay = Math.sin(a);
+
+    // mouse influence (gentle)
+    if(mouse.x !== null){
+      const dx = p.x - mouse.x;
+      const dy = p.y - mouse.y;
+      const d2 = dx*dx + dy*dy;
+      if(d2 < 25000){ // influence radius squared
+        const f = (1 - Math.sqrt(d2)/160) * 0.9;
+        p.x += (mouse.vx || 0) * 2 * f;
+        p.y += (mouse.vy || 0) * 2 * f;
+      }
+    }
+
+    const nxPos = p.x + ax * stepSize;
+    const nyPos = p.y + ay * stepSize;
+
+    // draw small segment
+    ctx.lineWidth = p.lineWidth;
+    // blend color from palette using small noise or hue
+    const c0 = hexToRgb(params.palette[p.colorIdx % params.palette.length]);
+    const c = `rgba(${c0.r}, ${c0.g}, ${c0.b}, ${alpha})`;
+    ctx.strokeStyle = c;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(nxPos, nyPos);
+    ctx.stroke();
+
+    p.x = nxPos;
+    p.y = nyPos;
+    p.age += 1;
+
+    // respawn if out of bounds or too old
+    if(p.x < -20 || p.x > innerWidth+20 || p.y < -20 || p.y > innerHeight+20 || p.age > 400 + Math.random()*800){
+      respawn(p);
+    }
+  }
+}
+
+function respawn(p){
+  // respawn near center or edges randomly for visual variety
+  const bias = Math.random();
+  if(bias < 0.5){
+    p.x = Math.random()*innerWidth;
+    p.y = Math.random()*innerHeight;
+  } else {
+    const side = Math.floor(Math.random()*4);
+    if(side===0){ p.x = -10; p.y = Math.random()*innerHeight; }
+    if(side===1){ p.x = innerWidth+10; p.y = Math.random()*innerHeight; }
+    if(side===2){ p.x = Math.random()*innerWidth; p.y = -10; }
+    if(side===3){ p.x = Math.random()*innerWidth; p.y = innerHeight+10; }
+  }
+  p.age = 0;
+  p.lineWidth = 0.4 + Math.random()*1.6;
+  p.colorIdx = Math.floor(Math.random()*params.palette.length);
+}
+
+/* animation loop */
+function animate(){
+  step();
+  if(params.animate) animId = requestAnimationFrame(animate);
+}
+
+/* util: hex to rgb */
+function hexToRgb(hex){
+  const h = hex.replace('#','');
+  const bigint = parseInt(h,16);
+  return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
+}
+
+/* UI wiring */
+const particleCountEl = document.getElementById('particleCount');
+const noiseScaleEl = document.getElementById('noiseScale');
+const flowStrengthEl = document.getElementById('flowStrength');
+const stepSizeEl = document.getElementById('stepSize');
+const alphaEl = document.getElementById('alpha');
+const particleCountVal = document.getElementById('particleCountVal');
+const noiseScaleVal = document.getElementById('noiseScaleVal');
+const flowStrengthVal = document.getElementById('flowStrengthVal');
+const stepSizeVal = document.getElementById('stepSizeVal');
+const alphaVal = document.getElementById('alphaVal');
+const animBtn = document.getElementById('animBtn');
+const clearBtn = document.getElementById('clearBtn');
+const reseedBtn = document.getElementById('reseedBtn');
+const savePng = document.getElementById('savePng');
+const saveJpg = document.getElementById('saveJpg');
+const col0 = document.getElementById('col0');
+const col1 = document.getElementById('col1');
+const col2 = document.getElementById('col2');
+const sw0 = document.getElementById('sw0');
+const sw1 = document.getElementById('sw1');
+const sw2 = document.getElementById('sw2');
+
+function updateSwatches(){
+  sw0.style.background = params.palette[0];
+  sw1.style.background = params.palette[1];
+  sw2.style.background = params.palette[2];
+}
+col0.addEventListener('input', (e)=>{ params.palette[0] = e.target.value; updateSwatches(); });
+col1.addEventListener('input', (e)=>{ params.palette[1] = e.target.value; updateSwatches(); });
+col2.addEventListener('input', (e)=>{ params.palette[2] = e.target.value; updateSwatches(); });
+
+particleCountEl.addEventListener('input', (e)=> {
+  const v = Number(e.target.value);
+  particleCountVal.textContent = v;
+});
+particleCountEl.addEventListener('change', (e)=> {
+  params.particleCount = Number(e.target.value);
+  initParticles(params.particleCount);
+});
+
+noiseScaleEl.addEventListener('input', (e)=>{
+  params.noiseScale = Number(e.target.value);
+  noiseScaleVal.textContent = params.noiseScale.toFixed(4);
+});
+
+flowStrengthEl.addEventListener('input', (e)=>{
+  params.flowStrength = Number(e.target.value);
+  flowStrengthVal.textContent = params.flowStrength.toFixed(2);
+});
+stepSizeEl.addEventListener('input', (e)=>{
+  params.stepSize = Number(e.target.value);
+  stepSizeVal.textContent = params.stepSize.toFixed(2);
+});
+alphaEl.addEventListener('input', (e)=>{
+  params.alpha = Number(e.target.value);
+  alphaVal.textContent = params.alpha.toFixed(3);
+});
+
+animBtn.addEventListener('click', ()=>{
+  params.animate = !params.animate;
+  animBtn.textContent = params.animate ? 'Pause' : 'Play';
+  if(params.animate) { cancelAnimationFrame(animId); animate(); }
+  else cancelAnimationFrame(animId);
+});
+
+clearBtn.addEventListener('click', ()=> {
+  ctx.fillStyle = 'rgba(8,8,12,1)';
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+  initParticles(params.particleCount);
+});
+
+reseedBtn.addEventListener('click', ()=>{
+  params.seed = Math.random();
+  noise = new Perlin(params.seed);
+  // subtle background shift
+  ctx.fillStyle = `rgba(8,8,12,0.6)`;
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+});
+
+savePng.addEventListener('click', ()=> saveImage('image/png'));
+saveJpg.addEventListener('click', ()=> saveImage('image/jpeg', 0.95));
+
+function saveImage(type='image/png', quality=1.0){
+  // create a full-size copy with current palette background
+  const tmp = document.createElement('canvas');
+  tmp.width = innerWidth; tmp.height = innerHeight;
+  const tctx = tmp.getContext('2d');
+  // optional: dark background
+  tctx.fillStyle = '#08080c';
+  tctx.fillRect(0,0,tmp.width,tmp.height);
+  // draw current canvas contents onto it
+  tctx.drawImage(canvas, 0, 0, tmp.width, tmp.height);
+  const data = tmp.toDataURL(type, quality);
+  const a = document.createElement('a');
+  a.href = data;
+  a.download = `flowfield-${Date.now()}.${type==='image/png'?'png':'jpg'}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/* mouse / touch handling */
+canvas.addEventListener('mousemove', (e)=>{
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  mouse.vx = x - lastMouse.x;
+  mouse.vy = y - lastMouse.y;
+  mouse.x = x; mouse.y = y;
+  lastMouse.x = x; lastMouse.y = y;
+});
+canvas.addEventListener('mousedown', (e)=>{ mouse.down = true; });
+canvas.addEventListener('mouseup', (e)=>{ mouse.down = false; });
+canvas.addEventListener('mouseleave', (e)=>{ mouse.x = null; mouse.y = null; mouse.vx=0; mouse.vy=0; });
+
+/* touch */
+canvas.addEventListener('touchmove', (e)=>{
+  e.preventDefault();
+  const t = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  const x = t.clientX - rect.left;
+  const y = t.clientY - rect.top;
+  mouse.vx = x - lastMouse.x;
+  mouse.vy = y - lastMouse.y;
+  mouse.x = x; mouse.y = y;
+  lastMouse.x = x; lastMouse.y = y;
+}, {passive:false});
+canvas.addEventListener('touchstart', (e)=>{ mouse.down = true; }, {passive:false});
+canvas.addEventListener('touchend', (e)=>{ mouse.down = false; }, {passive:false});
+
+/* window events */
+window.addEventListener('resize', ()=> {
+  fitCanvas();
+  initParticles(params.particleCount);
+});
+
+/* initial setup */
+fitCanvas();
+initParticles(params.particleCount);
+updateSwatches();
+// initial dark fill
+ctx.fillStyle = '#08080c';
+ctx.fillRect(0,0,innerWidth,innerHeight);
+animate();
+
+/* small helper: when clicking on canvas, spawn particles at click */
+canvas.addEventListener('click', (e)=>{
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  for(let i=0;i<40;i++){
+    const p = particles[Math.floor(Math.random()*particles.length)];
+    p.x = x + (Math.random()-0.5)*80;
+    p.y = y + (Math.random()-0.5)*80;
+    p.age = 0;
+    p.lineWidth = 0.6 + Math.random()*2.4;
+  }
+});
+
+/* seed determinism helper: if you want to set a seed in console:
+   params.seed = 12345; noise = new Perlin(params.seed); clearBtn.click();
+*/
+
+/* END */
+</script>
+</body>
+</html>
