@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Interactive Circular Waves</title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            height: 100%;
+            background: #05080f;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .ui {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: #cfe8ffcc;
+            font-family: system-ui, sans-serif;
+            font-size: 13px;
+            background: #0a122299;
+            padding: 6px 10px;
+            border-radius: 8px;
+            backdrop-filter: blur(6px);
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="c"></canvas>
+    <div class="ui">Ripple effect</div>
+
+    <script>
+        (() => {
+            const canvas = document.getElementById("c");
+            const ctx = canvas.getContext("2d");
+            let W, H, DPR;
+
+            function resize() {
+                DPR = window.devicePixelRatio || 1;
+                W = innerWidth; H = innerHeight;
+                canvas.width = W * DPR;
+                canvas.height = H * DPR;
+                canvas.style.width = W + "px";
+                canvas.style.height = H + "px";
+                ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+            }
+            window.addEventListener("resize", resize);
+            resize();
+
+            const ripples = []; // {x,y,t,life,count}
+
+            function drawCircle(x, y, r, alpha, width = 1.5) {
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(120,200,255,${alpha})`;
+                ctx.lineWidth = width;
+                ctx.stroke();
+            }
+
+            function loop(now) {
+                ctx.fillStyle = "rgba(5,8,15,0.25)";
+                ctx.fillRect(0, 0, W, H);
+
+                // Central background pulse with many circles
+                const t = now * 0.002;
+                const layers = 20;
+                for (let i = 0; i < layers; i++) {
+                    const baseR = 50 + i * 40;
+                    const r = baseR + Math.sin(t + i * 0.4) * 15;
+                    const alpha = 0.08 + (i / layers) * 0.15;
+                    drawCircle(W / 2, H / 2, r, alpha, 1.2);
+                }
+
+                // Active ripple waves
+                for (let i = ripples.length - 1; i >= 0; i--) {
+                    const r = ripples[i];
+                    const age = now - r.t;
+                    const progress = age / r.life;
+                    if (progress >= 1) { ripples.splice(i, 1); continue; }
+                    const maxRadius = Math.max(W, H) * 0.2;
+                    for (let j = 0; j < r.count; j++) {
+                        const offset = j / r.count; // phase offset for concentric rings
+                        const localProg = (progress + offset) % 1;
+                        const radius = localProg * maxRadius;
+                        const alpha = (1 - localProg) * 0.5;
+                        drawCircle(r.x, r.y, radius, alpha, 2);
+                    }
+                }
+
+                requestAnimationFrame(loop);
+            }
+            requestAnimationFrame(loop);
+        })();
+    </script>
+</body>
+
+</html>
